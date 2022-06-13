@@ -1,13 +1,17 @@
+# -*- coding: utf-8 -*-
 import xlrd
 import xlsxwriter
 import os
 from unicodedata import normalize
 from difflib import SequenceMatcher
-import tkinter as tk
+from tkinter import ttk
 from tkinter import filedialog
 from tkinter import simpledialog
 from tkinter import *
 from zipfile import ZipFile
+import time
+from ctypes import windll #You may want to read up the docs
+windll.shcore.SetProcessDpiAwareness(True)
 
 schoolIDs = {}
 schoolStudents = {}
@@ -61,7 +65,7 @@ inform = ["Speaker (student's first and last name)", "Code", "Selection (name of
 original = ["Speaker (student's first and last name)", "Code", "Selection (name of the piece)",
             "Judge's name (first and last)", "Round (number)",
             "Vocal Projection and Articulation - Does the voice both suit and enhance the material? Is volume sufficient, and/or are variations in volume used effectively?",
-            "Tempo and Phrasing - Does the pacing augment the mood and effect (drama, humor, etc.)? Does the work flow with clarity? Does the phrasing establish the writer's thought pattern clearly?	 If pauses are used, are they deliberate and effective?",
+            "Tempo and Phrasing - Does the pacing augment the mood and effect (drama, humor, etc.)? Does the work flow with clarity? Does the phrasing establish the writer's thought pattern clearly?   If pauses are used, are they deliberate and effective?",
             "Gestures and Facial Expressions -  Do the gestures enhance the interpretation of the material? Are the gestures suggestive and not sustained to the point of acting? Is any movement confined to the podium area?",
             "Eye Contact - Does the speaker maintain appropriate / sufficient eye contact with the audience? If there is more than one character, is there an effective shift of focus? If a focus is used, is it clearly and effectively maintained?",
             "Narration / Characterization - Is the work coherent and easy to follow? Is a specific mood established and maintained that is appropriate to the genre? Does the speaker utilize the language of the piece effectively? Does the personality of the character / speaker come through clearly? If there are multiple characters, is each distinct?",
@@ -90,7 +94,7 @@ children = ["Speaker (student's first and last name)", "Code", "Selection (name 
 drama = ["Speaker (student's first and last name)", "Code: ", "Selection (name of the piece)",
          "Judge's name (first and last)", "Round (number)", "Room (letter)",
          "Vocal Projection and Articulation - Does the voice both suit and enhance the material? Is volume used effectively? ",
-         "Tempo and Phrasing - Does the pacing augment the mood and effect? Does the work flow with clarity? Does the phrasing establish the writer's thought pattern clearly?	 Are dramatic pauses used effectively?",
+         "Tempo and Phrasing - Does the pacing augment the mood and effect? Does the work flow with clarity? Does the phrasing establish the writer's thought pattern clearly?   Are dramatic pauses used effectively?",
          "Body and Facial Expression - Do the gestures enhance the interpretation of the material? Are the gestures suggestive and not sustained to the point of acting? Is the movement confined to the podium area?",
          "Eye Contact and Focus - Is a focus established? If two or more characters are present, is there an effective shift of focus? Is character focus effectively maintained throughout the interpretation?",
          "Sustaining of Mood and Character - Is there sufficient tension to communicate mood and conflict? Does the speaker utilize the language of the piece effectively?",
@@ -165,7 +169,19 @@ link = {"Extemporaneous Speaking": (extemp, "Extemp"), "Persuasive Ballot": (per
         "Children_s Literature": (children, "Childrens"), "Dramatic Interpretation": (drama, "Drama"),
         "Humorous Interpretation": (humor, "Humor"), "Serious Poetry": (poetry, "Poetry"),
         "Serious Prose": (prose, "Prose"), "Ensemble Acting": (ensemble, "EA"), "Readers Theater": (readers, "RT")}
-
+try:
+    rubricData = open("rubric.txt", "r").readlines()
+    copy_link = {}
+    for item in rubricData:
+        if (item != "\n"):
+            l = item.split("~~")
+            title = l[0].strip().rstrip("\"").lstrip("\"")
+            shorttitle = l[1].strip().rstrip("\"").lstrip("\"")
+            rubricList = eval(l[2])
+            copy_link[title] = (rubricList, shorttitle)
+    link = copy_link.copy()
+except:
+    pass
 #Function that gives a number from 0 to 1 to judge how similar two strings are
 def evaluateSimilarity(stringOne, stringTwo):
     stringOne = stringOne.lower()
@@ -207,15 +223,21 @@ def getSchool(foldername, code):
 def getIndex(rubric, formtitle):
     order = []
     for i in range(len(rubric)):
-        order.append((evaluateSimilarity(rubric[i], formtitle), i))
-    order = sorted(order[::-1])
+        if evaluateSimilarity(rubric[i], "Over Time") > .7:
+            order.append((evaluateSimilarity("Was this student's performance over time (i.e., longer than 11 minutes)?", formtitle), i))
+        else:
+            order.append((evaluateSimilarity(rubric[i], formtitle), i))
+    order = sorted(order)
     #Must have above 70% confidence to be considered
-    if (order[-1][0] < .7):
-        return -1
-    return order[-1][1]
+
+    # if (order[-1][0] < .4):
+    #   print(order, formtitle)
+    #   return -1
+    return order[-1]
 
 #Take the ID/Code spreadsheet and create a dictionary with the IDs for each school (key = school, value = list of IDS)
 def processIDs(filename):
+    schoolIDs.clear()
     workbook = xlrd.open_workbook(filename)
     worksheet = workbook.sheet_by_index(0)
     # format = Name, Abrev, Round 1, Round 2, Round 3, Round...N
@@ -224,6 +246,7 @@ def processIDs(filename):
     #Finding the number of rows and columns in the spreadsheet
     while (columns != worksheet.ncols and worksheet.cell_value(0, columns) != ""):
         columns += 1
+
     columns -= 1
 
     while (rows != worksheet.nrows and worksheet.cell_value(rows, 0) != ""):
@@ -240,11 +263,13 @@ def processIDs(filename):
                 continue
             info.append(int(worksheet.cell_value(i, j)))
         schoolIDs[worksheet.cell_value(i, 0)] = info
-
+errors = open("errors.txt", "w+")
+errors.close()
 #Go through all the spreadsheets in the folder and add the student data into a dictionary with all the schools
 #Format of dictionary: Key = school name, value = list of student data (judges comments for that student's performance"
 def processDataFolder(foldername):
     categories = {}
+    errors = open("errors.txt", "a")
     for file in os.listdir(foldername):
         trimmed = file.strip("Copy of ").strip(".xlsx")
         filename = os.path.join(foldername, file)
@@ -275,21 +300,34 @@ def processDataFolder(foldername):
                             schoolStudents[school] = [(trimmed, person)]
                     except:
                         #If there is an error, inform the user
-                        print("Error Processing: " + str(person))
+                        for item in person:
+                            errors.write(item[0])
+                            errors.write(" , ")
+                        errors.write("\n")
                         pass
 
         categories[trimmed] = rubric
-
+    errors.close()
 #Take the dictionary "schoolStudents" and create spreadsheets for each school
+
 def createSpreadsheets():
-    statusInfo.set("Processing")
+    statusInfo.set("Status: Compiling Information")
+    root.update()
     files = []
+    timenumbers = [15]
+    seen = 0
     for school in schoolIDs:
+
         if (school not in schoolStudents):
+            seen += 1
             continue
         #Creating a new XLSX file for each school
+        start = time.time()
+        prev = start
         workbook = xlsxwriter.Workbook(school + '.xlsx')
         files.append(school + '.xlsx')
+
+        prediction = round((sum(timenumbers) / len(timenumbers)) * (len(schoolIDs) - seen))
         for item in link:
             currentCategory = link[item][1]
             row = 1
@@ -300,13 +338,38 @@ def createSpreadsheets():
             #Write all the student data to the sheet
             for student in schoolStudents[school]:
                 if (getCategory(student[0]) == currentCategory):
+                    data = []
+                    done = []
                     for info in student[1]:
                         #Finding the best index to place the student data in
                         index = getIndex(link[item][0], info[1])
                         if (index == -1):
                             continue
-                        worksheet.write(row, index, info[0])
+                        data.append((index[0], index[1], info[0]))
+                        if (time.time() - prev > 1):
+                            prev += 1
+                            prediction -= 1
+                            timeInfo.set("Estimated Time: " + str(prediction) + " seconds")
+                            root.update()
+                    data = sorted(data)[::-1]
+                    for best in data:
+                        if best[1] not in done:
+                            worksheet.write(row, best[1], best[2])
+                            done.append(best[1])
                     row += 1
+                if (time.time() - prev > 1):
+                    prev += 1
+                    prediction -= 1
+                    timeInfo.set("Estimated Time: " + str(prediction) + " seconds")
+                    root.update()
+
+        seen += 1
+        end = time.time()
+        timenumbers.append(end-start)
+        prediction = round((sum(timenumbers) / len(timenumbers)) * (len(schoolIDs) - seen))
+        pb['value'] = round((seen / len(schoolIDs)) * 100)
+        timeInfo.set("Estimated Time: " + str(prediction) + " seconds")
+        root.update()
         workbook.close()
     #Zip all the created files into output.zip
     with ZipFile('output.zip', 'w') as zipFile:
@@ -315,52 +378,105 @@ def createSpreadsheets():
     #Delete all the files from directory (only output.zip remains)
     for item in files:
         os.remove(item)
-    statusInfo.set("Done")
+    pb['value'] = 0
+    statusInfo.set("Status: Finished Program")
+    timeInfo.set("Estimated Time: ")
+    root.update()
 
-#Framework for TKinter Application
-root = tk.Tk()
-root.title('Invenire Product')
-root.resizable(False, False)
-width = 115
-height = 340
-x = root.winfo_screenwidth() - (width / 2)
-y = (height / 2)
-root.geometry('200x350')
 
-root.grid_rowconfigure(0, weight=1)
-root.grid_columnconfigure(0, weight=1)
+
 
 #Asks user for tournament folder and runs process data folder on it
 def open_folder():
-    statusInfo.set("Processing")
+    if (len(schoolIDs) == 0):
+        statusInfo.set("Error: Select Code Sheet First")
+        timeInfo.set("Estimated Time:")
+        return
+    statusInfo.set("Status: Processing Qualifying Tournament Folder")
+    timeInfo.set("Estimated Time: 4 seconds")
+    root.update()
     folder = filedialog.askdirectory()
+    processDataFolder(folder)
     try:
         processDataFolder(folder)
     except:
         statusInfo.set("Error: Select Folder")
         return
-    statusInfo.set("Pick Folders")
+    timeInfo.set("Estimated Time: 0 seconds")
+    statusInfo.set("Status: Upload Qualifying Tournament Folder (again) or Press Create Sheet button")
 
 #Asks for the code sheet and processes the the IDs in the code sheet
 def open_file():
+    statusInfo.set("Status: Processing Code Sheet")
+    timeInfo.set("Estimated Time: 2 seconds")
+    root.update()
     file = filedialog.askopenfilename()
-    processIDs(file)
-    statusInfo.set("Pick Folders")
+    print(file)
+    if (".xlsx" not in file):
+        statusInfo.set("Error: Must be a .xlsx File")
+        timeInfo.set("Estimated Time: ")
+        root.update()
+    else:
+        try:
+            processIDs(file)
+        except:
+            statusInfo.set("Error: Must be the Code Sheet")
+            timeInfo.set("Estimated Time: ")
+            root.update()
+            return
+        timeInfo.set("Estimated Time: 0 seconds")
+        statusInfo.set("Status: Upload Qualifying Tournament Folder")
 
-#Buttons in the GUI for user interaction
-codes = tk.Button(root, text=' Code Sheets ', command=open_file, pady=40)
-codes.grid(column=0, row=1, sticky='')
 
-open_button = tk.Button(root, text='Open Folders ', command=open_folder, pady=40)
-open_button.grid(column=0, row=2, sticky='')
+#Create & Configure root
+root = Tk()
+root.title('Invenire Product')
 
-create = tk.Button(root, text='Create Sheets', command=createSpreadsheets, pady=40)
-create.grid(column=0, row=3, sticky='')
+width = root.winfo_screenwidth()//2
+height = root.winfo_screenheight()//2
+root.geometry(str(width) + "x" + str(height))
+Grid.rowconfigure(root, 0, weight=1)
+Grid.columnconfigure(root, 0, weight=1)
 
-#Status so the user is aware of what is going on
+#Create & Configure frame
+frame=Frame(root, highlightbackground="black", highlightthickness=5)
+frame.grid(row=0, column=0, sticky=N+S+E+W)
+frame.configure(background='white')
+
+
+#Create a 5x10 (rows x columns) grid of buttons inside the frame
+for row_index in range(6):
+    Grid.rowconfigure(frame, row_index, weight=1)
+    for col_index in range(9):
+        Grid.columnconfigure(frame, col_index, weight=1)
+        text = Label(frame, text=" ")
+        text.grid(row=row_index, column=col_index)
+        text.config(bg="white")
+
+
+title = Label(frame, text="Invenire Application", font = ("Helvetica 18 bold"))
+title.grid(row=0, column=0, columnspan=9)
+title.config(bg="white")
 statusInfo = StringVar()
-statusInfo.set("Select Code")
-status = Label(root, textvariable=statusInfo, pady=5)
-status.grid(column=0, row=0, sticky='')
+statusInfo.set("Status: Upload Code Sheet")
+status = Label(frame,textvariable = statusInfo, font = ("Helvetica 13 bold"),  wraplength=600)
+status.grid(row=1, column=0, columnspan = 9)
+status.config(bg="white")
+timeInfo = StringVar()
+timeInfo.set("Estimated Time:")
+etime = Label(frame,textvariable = timeInfo, font = ("Helvetica 13 bold"))
+etime.grid(row=2, column=0, columnspan = 9)
+etime.config(bg="white")
+pb = ttk.Progressbar(frame, orient='horizontal',mode='determinate',length=width//2)
+pb['value'] = 0
+pb.grid( column=0, row=3, columnspan=9)
 
+school_codes = Button(frame, text='Select School Codes', font = ("Helvetica 10 bold"),  wraplength=150,command=open_file, pady=40, highlightthickness=2, highlightbackground="black")
+school_codes.grid(column=1, row=4, sticky='')
+
+tournament_folder = Button(frame, text='Select Qualifying Tournament Folder',  wraplength=200, font = ("Helvetica 10 bold"),command=open_folder, pady=40, highlightthickness=2, highlightbackground="black")
+tournament_folder.grid(column=0, row=4, sticky='', columnspan=9)
+
+spreadsheets = Button(frame, text='Create Spreadsheets', font = ("Helvetica 10 bold"),  wraplength=150,command=createSpreadsheets, pady=40, highlightthickness=2, highlightbackground="black")
+spreadsheets.grid(column=7, row=4, sticky='')
 root.mainloop()
