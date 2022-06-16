@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+#Important modules that need to be installed
 import xlrd
 import xlsxwriter
 import os
@@ -10,13 +11,13 @@ from tkinter import simpledialog
 from tkinter import *
 from zipfile import ZipFile
 import time
-from ctypes import windll #You may want to read up the docs
+from ctypes import windll
 windll.shcore.SetProcessDpiAwareness(True)
 
+#maps school name to school id
 schoolIDs = {}
+#maps school name to a list of al students in the school
 schoolStudents = {}
-
-blacklist = ["email", "timestamp"]
 
 link = {}
 
@@ -169,12 +170,14 @@ link = {"Extemporaneous Speaking": (extemp, "Extemp"), "Persuasive Ballot": (per
         "Children_s Literature": (children, "Childrens"), "Dramatic Interpretation": (drama, "Drama"),
         "Humorous Interpretation": (humor, "Humor"), "Serious Poetry": (poetry, "Poetry"),
         "Serious Prose": (prose, "Prose"), "Ensemble Acting": (ensemble, "EA"), "Readers Theater": (readers, "RT")}
+#If the user has made a rubric.txt, they can use their custom rubric instead
 try:
     rubricData = open("rubric.txt", "r").readlines()
     copy_link = {}
     for item in rubricData:
         if (item != "\n"):
             l = item.split("~~")
+            #Read the data from the file
             title = l[0].strip().rstrip("\"").lstrip("\"")
             shorttitle = l[1].strip().rstrip("\"").lstrip("\"")
             rubricList = eval(l[2])
@@ -223,16 +226,13 @@ def getSchool(foldername, code):
 def getIndex(rubric, formtitle):
     order = []
     for i in range(len(rubric)):
+        #Rubric item "Over Time" causes some issues
         if evaluateSimilarity(rubric[i], "Over Time") > .7:
             order.append((evaluateSimilarity("Was this student's performance over time (i.e., longer than 11 minutes)?", formtitle), i))
         else:
             order.append((evaluateSimilarity(rubric[i], formtitle), i))
     order = sorted(order)
-    #Must have above 70% confidence to be considered
-
-    # if (order[-1][0] < .4):
-    #   print(order, formtitle)
-    #   return -1
+    #find the best index position
     return order[-1]
 
 #Take the ID/Code spreadsheet and create a dictionary with the IDs for each school (key = school, value = list of IDS)
@@ -246,7 +246,6 @@ def processIDs(filename):
     #Finding the number of rows and columns in the spreadsheet
     while (columns != worksheet.ncols and worksheet.cell_value(0, columns) != ""):
         columns += 1
-
     columns -= 1
 
     while (rows != worksheet.nrows and worksheet.cell_value(rows, 0) != ""):
@@ -346,9 +345,11 @@ def createSpreadsheets():
                         if (index == -1):
                             continue
                         data.append((index[0], index[1], info[0]))
+                        #Check if 1 second has passed
                         if (time.time() - prev > 1):
                             prev += 1
                             prediction -= 1
+                            #Update time
                             timeInfo.set("Estimated Time: " + str(prediction) + " seconds")
                             root.update()
                     data = sorted(data)[::-1]
@@ -357,7 +358,9 @@ def createSpreadsheets():
                             worksheet.write(row, best[1], best[2])
                             done.append(best[1])
                     row += 1
+                #Check if one second has passed
                 if (time.time() - prev > 1):
+                    #Update time
                     prev += 1
                     prediction -= 1
                     timeInfo.set("Estimated Time: " + str(prediction) + " seconds")
@@ -366,6 +369,7 @@ def createSpreadsheets():
         seen += 1
         end = time.time()
         timenumbers.append(end-start)
+        #Use the RRAM technique to calculate the average time estimate to run one spreadsheet and multiply that by the number of sheets remaining
         prediction = round((sum(timenumbers) / len(timenumbers)) * (len(schoolIDs) - seen))
         pb['value'] = round((seen / len(schoolIDs)) * 100)
         timeInfo.set("Estimated Time: " + str(prediction) + " seconds")
@@ -411,7 +415,6 @@ def open_file():
     timeInfo.set("Estimated Time: 2 seconds")
     root.update()
     file = filedialog.askopenfilename()
-    print(file)
     if (".xlsx" not in file):
         statusInfo.set("Error: Must be a .xlsx File")
         timeInfo.set("Estimated Time: ")
@@ -438,13 +441,13 @@ root.geometry(str(width) + "x" + str(height))
 Grid.rowconfigure(root, 0, weight=1)
 Grid.columnconfigure(root, 0, weight=1)
 
-#Create & Configure frame
+#Set up the moveable frame
 frame=Frame(root, highlightbackground="black", highlightthickness=5)
 frame.grid(row=0, column=0, sticky=N+S+E+W)
 frame.configure(background='white')
 
 
-#Create a 5x10 (rows x columns) grid of buttons inside the frame
+#Create a 6x9 window of grid items that will stretch according to resolution
 for row_index in range(6):
     Grid.rowconfigure(frame, row_index, weight=1)
     for col_index in range(9):
@@ -453,7 +456,7 @@ for row_index in range(6):
         text.grid(row=row_index, column=col_index)
         text.config(bg="white")
 
-
+#Set up the text elements of the GUI
 title = Label(frame, text="Invenire Application", font = ("Helvetica 18 bold"))
 title.grid(row=0, column=0, columnspan=9)
 title.config(bg="white")
@@ -471,6 +474,7 @@ pb = ttk.Progressbar(frame, orient='horizontal',mode='determinate',length=width/
 pb['value'] = 0
 pb.grid( column=0, row=3, columnspan=9)
 
+#Set up the buttons in the GUI
 school_codes = Button(frame, text='Select School Codes', font = ("Helvetica 10 bold"),  wraplength=150,command=open_file, pady=40, highlightthickness=2, highlightbackground="black")
 school_codes.grid(column=1, row=4, sticky='')
 
@@ -479,4 +483,6 @@ tournament_folder.grid(column=0, row=4, sticky='', columnspan=9)
 
 spreadsheets = Button(frame, text='Create Spreadsheets', font = ("Helvetica 10 bold"),  wraplength=150,command=createSpreadsheets, pady=40, highlightthickness=2, highlightbackground="black")
 spreadsheets.grid(column=7, row=4, sticky='')
+
+#Open the GUI and constantly update it
 root.mainloop()
